@@ -8,7 +8,7 @@ import queue
 import sys
 
 def writeoutput(output_path,line):
-	if output_path:
+	if output_path and len(line):
 		with open(output_path,"a") as f:
 			f.write(line)
 			if line[-1]!='\n':
@@ -87,66 +87,95 @@ def process_logqueue(logqueue,event):
 			break
 	print("Stop log process. Nb lines read:",nblines)
 	
-def process_file_chunk(file_name,start,end,logqueue,output_path):
+def process_file_chunk(file_name, boundary, logqueue, output_path):
+	nblines = 0
+	(start,end)=boundary
 	print("starting worker process pid={0} [{1}-{2}]".format(os.getpid(),start,end))
 	try:
 		with open(file_name,"r") as fd:
-			if start > 0:
-				fd.seek(start-1)
-				ch=fd.read(1)
-				while ch!="\n" and fd.tell() < end: #start at next line
-					ch=fd.read(1)
+			fd.seek(start)
 			
-			while fd.tell() < end:
-				line=''
-				ch=fd.read(1)
-				while ch!="\n" and ch!="":
-					line+=ch
-					ch=fd.read(1)
-				if ch=="\n" or ch=="":
-					#print("[{0},{1}] {2}".format(start,end,line))
-					try:
-						process_address(line)
-						logqueue.put('[{0}] {1} connection success'.format(os.getpid(),line)) #log console
-						logqueue.put((output_path,line)) #log to file
-					except Exception as e:
-						logqueue.put('[{0}] {1}'.format(os.getpid(),str(e)))
+			while 	fd.tell() < end:
+				line = fd.readline()
+				nblines += 1
+				try:
+					process_address(line)
+					logqueue.put('[{0}] {1} connection success pos={2} end={3}'.format(os.getpid(),line,fd.tell(),end)) #log console
+					logqueue.put((output_path,line)) #log to file
+				except Exception as e:
+					logqueue.put('[{0}] {1}'.format(os.getpid(),str(e)))
+				
+			
 	except KeyboardInterrupt:
 		print("Keyboard interrupt => exit worker process {0}".format(os.getpid()))
-		sys.exit()
 	except FileNotFoundError as ioe:
 		print("error opening file",e)
 	except Exception as e:
 		print("error while reading",e)
-		
-def process_file_mp(file_name,output_path):
-	
-	file_size = os.stat(file_name).st_size
+	#logqueue.put((output_path,"End of Worker Process pid=[{0}], {1} line(s) read".format(os.getpid(),nblines)))
+
+def get_file_chunk_boundaries(file_name):
+	nblines = 0
+	file_size=0
+	try:
+		file_size = os.stat(file_name).st_size
+	except FileNotFoundError:
+		print("Error: file",file_name,"not found")
+		return None
+
 	chunk_size = 128 #min_chunk_size
 	
-	nbparts = min( int(mp.cpu_count()) , math.ceil(file_size / chunk_size) )
+	nbparts = min( mp.cpu_count() , math.ceil(file_size / chunk_size) )
 	chunk_size = math.ceil(file_size / nbparts)
+
+	print( "file size", file_size, "nb parts", nbparts, "chunk size", chunk_size )
+
+	with open(file_name,"r") as fd:
+		start = 0
+		while(start < file_size):
+			
+			fd.seek( min(start+chunk_size,file_size),0)
+			
+			ch=fd.read(1)			
+			while ch!="\n" and ch!="":
+				ch=fd.read(1)
+
+			end = fd.tell()
+			
+			if end <= start:
+				raise Exception("Error chunk boundary: start <= end ({0} <= {1})".format(start,end))
+
+			yield (start,end)
+			
+			start = end
+
+def process_file_mp(file_name,output_path):
 	
-	logqueue = mp.Queue();
 	event = mp.Event()
-	
-	processes = [ mp.Process( target=process_file_chunk, args=(file_name, x, min(x+chunk_size-1,file_size),logqueue,output_path) ) for x in range(0,file_size,chunk_size)]
-	
+	m = mp.Manager()
+	logqueue = m.Queue();
+  
 	try:
-		# Run processes
-		for p in processes:
-			p.start()
 	
 		outputprocess = mp.Process( target=process_logqueue, args=(logqueue,event) )
 		outputprocess.start()
-		# Exit the completed processes
-		for p in processes:
-			p.join()
+
+		pool = mp.Pool(mp.cpu_count())
+		jobs = [  pool.apply_async( process_file_chunk, args=[file_name, chunk_boundary, logqueue, output_path] ) for chunk_boundary in get_file_chunk_boundaries(file_name)]
+
+		# Exit the completed jobs
+		for j in jobs:
+			j.get()
+
 	except KeyboardInterrupt:
-		logqueue.put("Keyboard interrupt => exit process {0}".format(os.getpid()))
-	#shutdown log process
-	event.set()
-	outputprocess.join()
+		print("Keyboard interrupt => exit process {0}".format(os.getpid()))
+	except Exception as e:
+		print("Exception ", e)
+	else:
+		#shutdown log process
+		event.set()
+		outputprocess.join()
+		sys.exit()
 
 def main():
 	parser=OptionParser()
