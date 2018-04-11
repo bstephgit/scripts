@@ -100,7 +100,7 @@ def process_file_chunk(file_name, boundary, logqueue, output_path):
 				nblines += 1
 				try:
 					process_address(line)
-					logqueue.put('[{0}] {1} connection success pos={2} end={3}'.format(os.getpid(),line,fd.tell(),end)) #log console
+					logqueue.put('[{0}] {1} connection success pos={2} end={3}'.format(os.getpid(),line.replace('\n',''),fd.tell(),end)) #log console
 					logqueue.put((output_path,line)) #log to file
 				except Exception as e:
 					logqueue.put('[{0}] {1}'.format(os.getpid(),str(e)))
