@@ -34,6 +34,7 @@ def _is_ftp_dir(ftp_handle, name, guess_by_extension=True):
         ftp_handle.cwd(original_cwd)    # set it back to what it was
         return True
     except:
+        # print("Exception _is_ftp_dir",name)
         return False
 
 def _make_parent_dir(fpath):
@@ -55,7 +56,7 @@ def _download_ftp_file(ftp_handle, name, dest, overwrite):
     """ downloads a single file from an ftp server """
     _make_parent_dir(dest.lstrip("/"))
     if not os.path.exists(dest) or overwrite is True:
-        print '_download_ftp_file name=' + name + ' to dest=' + dest 
+        print ('_download_ftp_file name=' + name + ' to dest=' + dest )
         try:
             with open(dest, 'wb') as f:
                 ftp_handle.retrbinary("RETR {0}".format(name), f.write)
@@ -66,24 +67,36 @@ def _download_ftp_file(ftp_handle, name, dest, overwrite):
         print("already exists: {0}".format(dest))
 
 
-def _mirror_ftp_dir(ftp_handle, path, overwrite, guess_by_extension):
+def _mirror_ftp_dir(ftp_handle, ftppath, localdest, overwrite, guess_by_extension,connect_param=None):
     """ replicates a directory on an ftp server recursively """
-    #print 'current dir ' + path
-    items=ftp_handle.nlst(escapechars(path))[2:]
+    #print 'current dir ' + ftppath
+    items=ftp_handle.nlst(escapechars(ftppath))[2:]
     if len(items)==0:
-        print "WARN folder",path,"is empty"
-    for item in items:
+        print ("WARN folder",ftppath,"is empty")
+
+    index=0
+    len_items = len(items)
+    while index <  len_items:
         try:
-            item = os.path.join(path,item)
+            folder_name = items[index]
+            item = ftppath + "/" + folder_name
             if _is_ftp_dir(ftp_handle, item, guess_by_extension):
-                _mirror_ftp_dir(ftp_handle, item, overwrite, guess_by_extension)
+                _mirror_ftp_dir(ftp_handle, item, os.path.join(localdest,folder_name), guess_by_extension, connect_param)
             else:
-                _download_ftp_file(ftp_handle, item, item, overwrite)
+                _download_ftp_file(ftp_handle, item, os.path.join(localdest,folder_name), overwrite)
+            index += 1
         except socket_error as se:
-            print "ERROR Socket error exception caught:",se,"=> Retry",item
+            if connect_param is None:
+                print ("ERROR Socket error exception caught:",se,"=> Retry",item)
+                mysite,username,password,ftpstartpath = connect_param
+                ftp_handle = ftplib.FTP(mysite, username, password)
+                ftp_handle.cwd(ftpstartpath)
+            else:
+                print ("ERROR Socket error exception caught:",se,"=> Abort")
+                return
 
 
-def download_ftp_tree(ftp_handle, path, destination, overwrite=False, guess_by_extension=True):
+def download_ftp_tree(ftp_handle, path, destination, overwrite=False, guess_by_extension=True,connect_param=None):
     """
     Downloads an entire directory tree from an ftp server to the local destination
     :param ftp_handle: an authenticated ftplib.FTP instance
@@ -97,13 +110,13 @@ def download_ftp_tree(ftp_handle, path, destination, overwrite=False, guess_by_e
 
     #path = path.lstrip("/")
 
+
     ftppath , startfolder = os.path.split(path)
     original_directory = os.getcwd()    # remember working directory before function is executed
     os.chdir(destination)               # change working directory to ftp mirror directory
     ftp_handle.cwd(ftppath);
-    _mirror_ftp_dir(ftp_handle, startfolder, overwrite, guess_by_extension)
+    _mirror_ftp_dir(ftp_handle, startfolder, destination, overwrite, guess_by_extension,connect_param+(ftppath,))
     os.chdir(original_directory)        # reset working directory to what it was before function exec
-
 
 
 # play around here
@@ -127,4 +140,5 @@ if __name__ == "__main__":
     guessbyext=cmdargs.guessbyext is not None
     ftp = ftplib.FTP(mysite, username, password)
     ftp.encoding='utf-8'
-    download_ftp_tree(ftp, remote_dir, local_dir,override,guessbyext)
+    download_ftp_tree(ftp, remote_dir, local_dir,override,guessbyext,(mysite,username,password))
+    ftp.close()
