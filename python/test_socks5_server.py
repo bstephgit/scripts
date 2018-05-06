@@ -32,6 +32,7 @@ def split_addr_port(str):
 
 def test_socks5_server(ip_addr,port):
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.settimeout(90)
 	ret = False
 	try:
 		s.connect((ip_addr,port))
