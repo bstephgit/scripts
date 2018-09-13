@@ -7,6 +7,9 @@ import multiprocessing as mp
 import queue
 import sys
 
+def getNbProcess():
+    return mp.cpu_count()*2
+
 def writeoutput(output_path,line):
 	if output_path and len(line):
 		with open(output_path,"a") as f:
@@ -53,6 +56,7 @@ def process_address(line):
 
 def process_file(file_name,output_path):
 	try:
+		open(output_path,'w+').close()
 		file = open(file_name, 'r') 
 		line=file.readline()
 		while len(line) > 0:
@@ -70,23 +74,27 @@ def process_file(file_name,output_path):
 #multi process implementation
 def process_logqueue(logqueue,event):
 	nblines=0
-	while not (event.is_set() and logqueue.empty()):
-		try:
-			logline = logqueue.get(True,1) #wait 1 second
-			
-			if type(logline) is tuple:
-				(output_path,line) = logline
-				writeoutput(output_path,line)
-			else:
-				nblines += 1
-				print("{0}".format(nblines),logline)
+	
+	try:
+		while not (event.is_set() and logqueue.empty()):
+			try:
+				logline = logqueue.get(True,1) #wait 1 second
 				
-		except queue.Empty:
-			#print("Exception: queue empty")
-			pass
-		except KeyboardInterrupt:
-			break
-	print("Stop log process. Nb lines read:",nblines)
+				if type(logline) is tuple:
+					(output_path,line) = logline
+					writeoutput(output_path,line)
+				else:
+					nblines += 1
+					print("{0}".format(nblines),logline)
+				
+			except queue.Empty:
+				#print("Exception: queue empty")
+				pass
+	except KeyboardInterrupt:
+		print("Log process => Keyboard interrupt signal received")
+	except:
+		pass
+	print("Log process stopped. Nb lines read:",nblines)
 	
 def process_file_chunk(file_name, boundary, logqueue, output_path):
 	(start,end)=boundary
@@ -95,8 +103,8 @@ def process_file_chunk(file_name, boundary, logqueue, output_path):
 		with open(file_name,"r") as fd:
 			fd.seek(start)
 			while 	fd.tell() < end:
-				percent=(fd.tell()-start)/(end-start)
 				line = fd.readline()
+				percent=(fd.tell()-start)/(end-start)
 				try:
 					process_address(line)
 					logqueue.put('[{0}] {1} connection success done={2:.2%}'.format(os.getpid(),line.replace('\n',''),percent)) #log console
@@ -124,7 +132,7 @@ def get_file_chunk_boundaries(file_name):
 
 	chunk_size = 128 #min_chunk_size
 	
-	nbparts = min( mp.cpu_count() , math.ceil(file_size / chunk_size) )
+	nbparts = min( getNbProcess() , math.ceil(file_size / chunk_size) )
 	chunk_size = math.ceil(file_size / nbparts)
 
 	print( "file size", file_size, "nb parts", nbparts, "chunk size", chunk_size )
@@ -153,28 +161,30 @@ def process_file_mp(file_name,output_path):
 	event = mp.Event()
 	m = mp.Manager()
 	logqueue = m.Queue();
-  
+
 	try:
-	
+		open(output_path,'w+').close()
 		outputprocess = mp.Process( target=process_logqueue, args=(logqueue,event) )
 		outputprocess.start()
 
-		pool = mp.Pool(mp.cpu_count())
+		pool = mp.Pool(getNbProcess())
 		jobs = [  pool.apply_async( process_file_chunk, args=[file_name, chunk_boundary, logqueue, output_path] ) for chunk_boundary in get_file_chunk_boundaries(file_name)]
 
 		# Exit the completed jobs
-		for j in jobs:
+		for j in jobs:			
 			j.get()
-
+		print("all processes terminated")
 	except KeyboardInterrupt:
 		print("Keyboard interrupt => exit process {0}".format(os.getpid()))
 	except Exception as e:
 		print("Exception ", e)
-	else:
+		#shutdown process pool
+		jobs.terminate()
+	finally:
 		#shutdown log process
 		event.set()
 		outputprocess.join()
-		sys.exit()
+		print("output processe terminated")
 
 def main():
 	parser=OptionParser()
