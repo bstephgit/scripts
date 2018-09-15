@@ -23,6 +23,7 @@ GOTO NEXT_PARAM_LABEL
 
 :PARAM_DONE_LABEL
 python scripts\python\test_socks5_server.py -f %INPUT_FILE% -o %TEMP_FILE%
-scripts\proxysock.bat -f %TEMP_FILE% -o %OUTPUT_FILE%
-DEL /Q %TEMP_FILE%
+CALL .\scripts\proxysock.bat -f %TEMP_FILE% -o %OUTPUT_FILE%
+ECHO Cleaning temp file %TEMP_FILE%
+IF EXIST  %TEMP_FILE% DEL /Q %TEMP_FILE% ELSE ECHO %TEMP_FILE% does not exist
 START NOTEPAD.EXE %OUTPUT_FILE%
