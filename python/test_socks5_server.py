@@ -141,19 +141,19 @@ class SchedulerClass(object):
             # with self.get_lock(p):
             done = self.get_done(p)
             _, end = self.get_boundary(p)
-            #print("process pid=%d has to done size=%d" % (p, (end-done)))
+            # print("process pid=%d has to done size=%d" % (p, (end-done)))
             return end - done
         # --------------------------------------------
         pid_to_split = max(self._procs, key=donesize)
         # with self.get_lock(pid_to_split):
         start, end = self.get_boundary(pid_to_split)
         pos = self.get_done(pid_to_split)
-        print('max to done process is pid=%d with size to done=%d and boundary (%d,%d)' %
-              (pid_to_split, (end-pos), start, end))
+        # print('max to done process is pid=%d with size to done=%d and boundary (%d,%d)' %
+        # (pid_to_split, (end-pos), start, end))
         split = split_function(pos, start, end, file_name)
         if split > 0:
-            print('split process task from(%d,%d) to (%d,%d) and (%d,%d)' %
-                  (start, end, start, split, split, end))
+            # print('split process task from(%d,%d) to (%d,%d) and (%d,%d)' %
+                  # (start, end, start, split, split, end))
             self._procs[pid_to_split][SchedulerClass.BOUNDARY] = (
                 start, split)
             pid_data = self._procs[pid]
@@ -161,8 +161,8 @@ class SchedulerClass(object):
                 split, end)
             pid_data[SchedulerClass.DONE] = split
             return (split, end)
-        else:
-            print('chunk is to short to be splitted for pid=%d' % pid_to_split)
+        # else:
+            # print('chunk is to short to be splitted for pid=%d' % pid_to_split)
         return None
 
 
@@ -228,15 +228,16 @@ def process_file_chunk(args):
 def split_boundary(pos, start, end, file_name):
     middle = math.floor((pos+end)/2)
     global __chunk_size__
-    print("split_boundary middle=%d for boundary(%d,%d)" %
-          (middle, start, end))
+    # print("split_boundary middle=%d for boundary(%d,%d)" %
+    # (middle, start, end))
     chunk_size = (middle-pos)
     if (middle-pos) > (__chunk_size__/4):
         with open(file_name, "r") as fd:
             middle = get_chunk_boundary(pos, chunk_size, fd, end)
-            print("split_boundary return middle=%d for boundary(%d,%d) after readjustment" %
-                  (middle, start, end))
-            return middle
+            # print("split_boundary return middle=%d for boundary(%d,%d) after readjustment" %
+            # (middle, start, end))
+            if middle < end:
+                return middle
     return -1
 
 
