@@ -229,7 +229,7 @@ def main():
                     if not options.output is None:
                         writeoutput(options.output, addr)
                 except Exception as e:
-                    print('Error for %s: %s' % (addr, str(e)))
+                    print(str(e))
     else:
         print("no arguments provided")
 
