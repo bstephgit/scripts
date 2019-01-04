@@ -103,7 +103,6 @@ def process_file(file_name, logger):
 class SchedulerClass(object):
     DONE = 0
     BOUNDARY = 1
-    LOCK = 2
 
     def __init__(self):
 
@@ -114,22 +113,15 @@ class SchedulerClass(object):
 
         l[SchedulerClass.DONE] = boundary[0]
         l[SchedulerClass.BOUNDARY] = boundary
-        l[SchedulerClass.LOCK] = mp.Lock()
         self._procs[pid] = l
 
-    # @lock_method
     def get_boundary(self, pid):
         boundary = self._procs[pid][SchedulerClass.BOUNDARY]
         return boundary
 
-    # @lock_method
     def get_done(self, pid):
         return self._procs[pid][SchedulerClass.DONE]
 
-    def get_lock(self, pid):
-        return self._procs[pid][SchedulerClass.LOCK]
-
-    # @lock_method
     def progress(self, pid, file_pos):
         self._procs[pid][SchedulerClass.DONE] = file_pos
 
@@ -231,7 +223,7 @@ def split_boundary(pos, start, end, file_name):
     # print("split_boundary middle=%d for boundary(%d,%d)" %
     # (middle, start, end))
     chunk_size = (middle-pos)
-    if (middle-pos) > (__chunk_size__/4):
+    if chunk_size > (__chunk_size__/4):
         with open(file_name, "r") as fd:
             middle = get_chunk_boundary(pos, chunk_size, fd, end)
             # print("split_boundary return middle=%d for boundary(%d,%d) after readjustment" %
@@ -324,7 +316,6 @@ def process_file_mp(file_name, output_path):
             pool.apply_async(worker_proc, [
                              file_name, scheduler, logger, chunk_boundary])
 
-        print("pool ruuning")
         # Exit the completed jobs
         pool.close()
         pool.join()
