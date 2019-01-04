@@ -42,6 +42,7 @@ def test_socks5_server(ip_addr, port):
     s.settimeout(90)
     ret = False
     try:
+        s.settimeout(15)
         s.connect((ip_addr, port))
         # \x05: VERSION \x01: NB AUTH METHODS, 1 \x00 METHOD: NO AUTHENTICATION
         s.send(b'\x05\x01\x00')
