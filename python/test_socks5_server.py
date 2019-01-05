@@ -3,6 +3,7 @@ import socket
 import os
 import re
 import math
+import time
 import multiprocessing as mp
 from multiprocessing.managers import BaseManager
 import queue
@@ -204,14 +205,15 @@ def process_file_chunk(args):
             pos = fd.tell()
 
             percent = (pos-start)/(end-start)
+            tm = time.perf_counter()
             try:
                 process_address(line)
-                logger.log_console('[{0}] {1} connection success done={2:.2%}'.format(
-                    os.getpid(), line.replace('\n', ''), percent))  # log console
+                logger.log_console('({3}) - [{0}] {1} connection success done={2:.2%}'.format(
+                    os.getpid(), line.replace('\n', ''), percent, tm))  # log console
                 logger.log_file(line)  # log to file
             except Exception as e:
-                logger.log_console('[{0}] {1} (done={2:.2%})'.format(
-                    os.getpid(), str(e), percent))
+                logger.log_console('({3}) - [{0}] {1} (done={2:.2%})'.format(
+                    os.getpid(), str(e), percent, tm))
 
             scheduler.progress(pid, pos)
             _, end = scheduler.get_boundary(pid)
