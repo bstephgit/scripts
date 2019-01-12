@@ -3,9 +3,28 @@ import socket
 import os
 import re
 import math
+import time
 import multiprocessing as mp
+from multiprocessing.managers import BaseManager
 import queue
 import sys
+import traceback
+
+
+__chunk_size__ = 128  # bytes
+__timeout__ = 15  # seconds
+
+
+def lock_method(meth):
+    def wrapper(*args):
+        self_ = args[0]
+        pid = args[1]
+        # print('decorator lock method', args, meth)
+        with self_.get_lock(pid):
+            returned_val = meth(*args)
+        return returned_val
+    return wrapper
+
 
 
 def getNbProcess():
@@ -39,10 +58,10 @@ def split_addr_port(str):
 
 def test_socks5_server(ip_addr, port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(90)
+    global __timeout__
+    s.settimeout(__timeout__)
     ret = False
     try:
-        s.settimeout(15)
         s.connect((ip_addr, port))
         # \x05: VERSION \x01: NB AUTH METHODS, 1 \x00 METHOD: NO AUTHENTICATION
         s.send(b'\x05\x01\x00')
@@ -63,16 +82,16 @@ def process_address(line):
     test_socks5_server(ip, port)
 
 
-def process_file(file_name, output_path):
+def process_file(file_name, logger):
     try:
-        open(output_path, 'w+').close()
+
         file = open(file_name, 'r')
         line = file.readline()
         while len(line) > 0:
             try:
                 process_address(line)
                 print('{0} connection success'.format(line))
-                writeoutput(output_path, line)
+                logger.log_file(line)
             except Exception as e:
                 print(e)
             line = file.readline()
@@ -80,61 +99,157 @@ def process_file(file_name, output_path):
     except IOError as ioe:
         print(ioe)
 
-# multi process implementation
+# multi process with scheduler (task assignation when a process is done)
 
 
-def process_logqueue(logqueue, event):
-    nblines = 0
+class SchedulerClass(object):
+    DONE = 0
+    BOUNDARY = 1
 
-    try:
-        while not (event.is_set() and logqueue.empty()):
-            try:
-                logline = logqueue.get(True, 1)  # wait 1 second
+    def __init__(self):
 
-                if type(logline) is tuple:
-                    (output_path, line) = logline
-                    writeoutput(output_path, line)
-                else:
-                    nblines += 1
-                    print("{0}".format(nblines), logline)
+        self._procs = {}
 
-            except queue.Empty:
-                # print("Exception: queue empty")
-                pass
-    except KeyboardInterrupt:
-        print("Log process => Keyboard interrupt signal received")
-    except:
-        pass
-    print("Log process stopped. Nb lines read:", nblines)
+    def register(self, pid, boundary):
+        l = [0 for _ in range(3)]
+
+        l[SchedulerClass.DONE] = boundary[0]
+        l[SchedulerClass.BOUNDARY] = boundary
+        self._procs[pid] = l
+
+    def get_boundary(self, pid):
+        boundary = self._procs[pid][SchedulerClass.BOUNDARY]
+        return boundary
+
+    def get_done(self, pid):
+        return self._procs[pid][SchedulerClass.DONE]
+
+    def progress(self, pid, file_pos):
+        self._procs[pid][SchedulerClass.DONE] = file_pos
+
+    def done(self, pid, split_function, file_name):
+        # inner function
+        print('process with pid=%d is done' % pid)
+
+        def donesize(p):
+            # with self.get_lock(p):
+            done = self.get_done(p)
+            _, end = self.get_boundary(p)
+            # print("process pid=%d has to done size=%d" % (p, (end-done)))
+            return end - done
+        # --------------------------------------------
+        pid_to_split = max(self._procs, key=donesize)
+        # with self.get_lock(pid_to_split):
+        start, end = self.get_boundary(pid_to_split)
+        pos = self.get_done(pid_to_split)
+        # print('max to done process is pid=%d with size to done=%d and boundary (%d,%d)' %
+        # (pid_to_split, (end-pos), start, end))
+        split = split_function(pos, start, end, file_name)
+        if split > 0:
+            # print('split process task from(%d,%d) to (%d,%d) and (%d,%d)' %
+                  # (start, end, start, split, split, end))
+            self._procs[pid_to_split][SchedulerClass.BOUNDARY] = (
+                start, split)
+            pid_data = self._procs[pid]
+            pid_data[SchedulerClass.BOUNDARY] = (
+                split, end)
+            pid_data[SchedulerClass.DONE] = split
+            return (split, end)
+        # else:
+            # print('chunk is to short to be splitted for pid=%d' % pid_to_split)
+        return None
 
 
-def process_file_chunk(file_name, boundary, logqueue, output_path):
-    (start, end) = boundary
+class LoggerClass(object):
+    def __init__(self, file_path):
+        self._file_path = file_path
+        open(self._file_path, 'w+').close()
+
+        self._nblines = 0
+
+    def log_console(self, logline):
+        self._nblines += 1
+        print("{0}".format(self._nblines), logline)
+
+    def log_file(self, line):
+        with open(self._file_path, "a") as f:
+            f.write(line)
+            if line[-1] != '\n':
+                f.write('\n')
+
+    def end(self):
+        print("Log process stopped. Nb lines read:", self._nblines)
+
+
+class ManagerClass(BaseManager):
+    pass
+
+
+ManagerClass.register('Scheduler', SchedulerClass)
+ManagerClass.register('Logger', LoggerClass)
+
+
+def process_file_chunk(args):
+
+    pid, file_name, scheduler, logger, chunk_boundary = args
+    start, end = chunk_boundary
+
     print(
-        "starting worker process pid={0} [{1}-{2}]".format(os.getpid(), start, end))
-    try:
-        with open(file_name, "r") as fd:
-            fd.seek(start)
-            while fd.tell() < end:
-                line = fd.readline()
-                percent = (fd.tell()-start)/(end-start)
-                try:
-                    process_address(line)
-                    logqueue.put('[{0}] {1} connection success done={2:.2%}'.format(
-                        os.getpid(), line.replace('\n', ''), percent))  # log console
-                    logqueue.put((output_path, line))  # log to file
-                except Exception as e:
-                    logqueue.put('[{0}] {1} (done={2:.2%})'.format(
-                        os.getpid(), str(e), percent))
+        "starting worker process pid={0} [{1}-{2}]".format(pid, start, end))
 
-    except KeyboardInterrupt:
-        print("Keyboard interrupt => exit worker process {0}".format(
-            os.getpid()))
-    except FileNotFoundError as ioe:
-        print("error opening file", ioe)
-    except Exception as e:
-        print("error while reading", e)
-    # logqueue.put((output_path,"End of Worker Process pid=[{0}], {1} line(s) read".format(os.getpid(),nblines)))
+    with open(file_name, "r") as fd:
+        fd.seek(start)
+        pos = fd.tell()
+        while pos < end:
+
+            line = fd.readline()
+            pos = fd.tell()
+
+            percent = (pos-start)/(end-start)
+            tm = time.perf_counter()
+            try:
+                process_address(line)
+                logger.log_console('({3}) - [{0}] {1} connection success done={2:.2%}'.format(
+                    os.getpid(), line.replace('\n', ''), percent, tm))  # log console
+                logger.log_file(line)  # log to file
+            except Exception as e:
+                logger.log_console('({3}) - [{0}] {1} (done={2:.2%})'.format(
+                    os.getpid(), str(e), percent, tm))
+
+            scheduler.progress(pid, pos)
+            _, end = scheduler.get_boundary(pid)
+
+
+def split_boundary(pos, start, end, file_name):
+    middle = math.floor((pos+end)/2)
+    global __chunk_size__
+    # print("split_boundary middle=%d for boundary(%d,%d)" %
+    # (middle, start, end))
+    chunk_size = (middle-pos)
+    if chunk_size > (__chunk_size__/4):
+        with open(file_name, "r") as fd:
+            middle = get_chunk_boundary(pos, chunk_size, fd, end)
+            # print("split_boundary return middle=%d for boundary(%d,%d) after readjustment" %
+            # (middle, start, end))
+            if middle < end:
+                return middle
+    return -1
+
+
+def get_chunk_boundary(start, chunk_size, file_desc, file_size):
+
+    file_desc.seek(min(start+chunk_size, file_size), 0)
+    ch = file_desc.read(1)
+    while ch != "\n" and ch != "":
+        ch = file_desc.read(1)
+
+    end = file_desc.tell()
+
+    if end <= start:
+        raise Exception(
+            "Error chunk boundary: start <= end ({0} <= {1})".format(start, end))
+
+    return end
 
 
 def get_file_chunk_boundaries(file_name):
@@ -145,7 +260,8 @@ def get_file_chunk_boundaries(file_name):
         print("Error: file", file_name, "not found")
         return None
 
-    chunk_size = 128  # min_chunk_size
+    global __chunk_size__
+    chunk_size = __chunk_size__  # min_chunk_size
 
     nbparts = min(getNbProcess(), math.ceil(file_size / chunk_size))
     chunk_size = math.ceil(file_size / nbparts)
@@ -157,54 +273,65 @@ def get_file_chunk_boundaries(file_name):
         start = 0
         while(start < file_size):
 
-            fd.seek(min(start+chunk_size, file_size), 0)
-
-            ch = fd.read(1)
-            while ch != "\n" and ch != "":
-                ch = fd.read(1)
-
-            end = fd.tell()
-
-            if end <= start:
-                raise Exception(
-                    "Error chunk boundary: start <= end ({0} <= {1})".format(start, end))
-
+            end = get_chunk_boundary(start, chunk_size, fd, file_size)
             yield (start, end)
 
             start = end
 
 
+def worker_proc(file_name, scheduler, logger, chunk_boundary):
+
+    pid = os.getpid()
+    scheduler.register(pid, chunk_boundary)
+    try:
+
+        while not chunk_boundary is None:
+            process_file_chunk(
+                (pid, file_name, scheduler, logger, chunk_boundary))
+            chunk_boundary = scheduler.done(pid, split_boundary, file_name)
+
+    except KeyboardInterrupt:
+        print("Keyboard interrupt => exit worker process {0}".format(
+            os.getpid()))
+    except FileNotFoundError as ioe:
+        print("error opening file", ioe)
+    except Exception as e:
+        print("error while reading %s" % e)
+        traceback.print_exc()
+
+
 def process_file_mp(file_name, output_path):
 
-    event = mp.Event()
-    m = mp.Manager()
-    logqueue = m.Queue()
-
+    mgr = ManagerClass()
+    scheduler = None
     try:
         open(output_path, 'w+').close()
-        outputprocess = mp.Process(
-            target=process_logqueue, args=(logqueue, event))
-        outputprocess.start()
 
-        pool = mp.Pool(getNbProcess())
-        jobs = [pool.apply_async(process_file_chunk, args=[file_name, chunk_boundary, logqueue, output_path])
-                for chunk_boundary in get_file_chunk_boundaries(file_name)]
+        mgr.start()
+        logger = mgr.Logger(output_path)
+        scheduler = mgr.Scheduler()
+
+        nb = getNbProcess()
+        pool = mp.Pool(nb)
+
+        for chunk_boundary in get_file_chunk_boundaries(file_name):
+            print(chunk_boundary)
+            pool.apply_async(worker_proc, [
+                             file_name, scheduler, logger, chunk_boundary])
 
         # Exit the completed jobs
-        for j in jobs:
-            j.get()
+        pool.close()
+        pool.join()
+
         print("all processes terminated")
     except KeyboardInterrupt:
         print("Keyboard interrupt => exit process {0}".format(os.getpid()))
     except Exception as e:
         print("Exception ", e)
-        # shutdown process pool
-        jobs.terminate()
     finally:
         # shutdown log process
-        event.set()
-        outputprocess.join()
         print("output processe terminated")
+        mgr.shutdown()
 
 
 def main():
