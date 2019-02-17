@@ -1,18 +1,11 @@
-import http.client as request
 from argparse import ArgumentParser
-from urllib.parse import urlparse
-from lxml import html, etree
-import re
-import os
-import time
-from configparser import ConfigParser
 import psutil
 
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import UnexpectedAlertPresentException
+#from selenium.common.exceptions import UnexpectedAlertPresentException
 
 import bookhelper.firefox
 import bookhelper.chrome
@@ -20,95 +13,7 @@ import bookhelper.config
 import bookhelper.apiway
 import bookhelper.session
 from bookhelper import ElementNames, FileTypes
-
-class FormatException(Exception):
-    def __init__(self, msg):
-        Exception.__init__(self, msg)
-
-    def __str__(self):
-        return "FormatException: " + Exception.__str__(self)
-
-
-def get_http_content(url):
-    r = None
-    content = None
-    try:
-        urlobj = urlparse(url)
-        scheme = urlobj.scheme
-        req = None
-        if scheme == 'https':
-            req = request.HTTPSConnection(urlobj.netloc)
-        else:
-            req = request.HTTPConnection(url.netloc)
-        path = urlobj.path
-        if len(urlobj.query) > 0:
-            path += '?' + urlobj.query
-        req.putrequest('GET', path)
-        req.endheaders()
-        r = req.getresponse()
-    except Exception as e:
-        print(e)
-    else:
-        content = r.read()
-    return content
-
-
-def extract_data(content):
-    children = html.fromstring(content).xpath('.//div[@class="thecontent"]/child::*')
-    title = ''
-    author = ''
-    year=''
-    node = children[2]
-    str = node.xpath('b/text()')
-    if not str:
-        msg = 'Error retrieving title/author in [%s]' % etree.tostring(node)
-        raise FormatException(msg)
-    str = str[0]
-    regexp = re.compile(r'(.+) by (.+)')
-    res = regexp.search(str)
-    try:
-        if res and len(res.groups()) == 2:
-            title, author = res.groups()
-            print(res.groups())
-            print('Successfully got title/author title=[%s], author=[%s]' % (title, author))
-        else:
-            raise FormatException('Error retrieving title/author from string %s' % str)
-    except FormatException:
-        print('Error extracting from %s. String cannot be split to Title/Author. Assign to title.' % str)
-        title=str
-
-    str = node.xpath('text()')
-
-    try:
-        if not str:
-            msg = 'Error retrieving year in [%s]' % str
-            raise FormatException(msg)
-    except FormatException:
-        print('Error extracting year and description. Left year and description unassigned')
-
-    str = str[0] if len(str[0]) > 4 else str[1]
-    regexp = re.compile(r'.+\s+\|\s+(19[0-9]{2}|20[0,1][0-9])\s+\|')
-    res = regexp.search(str)
-
-    try:
-        if not res:
-            raise FormatException('Date not found in \'%s\'' % str)
-        year = res.groups()[0]
-        print('Date successfully retrieved %s' % year)
-    except FormatException:
-        print('Cannot extract date. Left unassingned.')
-
-    descr = ''
-    children = children[3:]
-    for child in children:
-        if child.tag == 'div':
-            break
-        descr += etree.tostring(child, encoding='UTF-8').replace(b'\n', b'').decode('utf-8')
-
-    # print('description=%s',descr)
-
-    return {ElementNames.TITLE: title.strip(), ElementNames.AUTHOR: author.strip(), ElementNames.YEAR: year, \
-                ElementNames.DESCRIPTION: descr}
+from bookhelper.sites import extract_data
 
 
 def postDataTobrowser(data):
@@ -148,20 +53,6 @@ def postDataTobrowser(data):
     reset_text(webdriver.find_element_by_name(ElementNames.DESCRIPTION), data[ElementNames.DESCRIPTION])
 
     print('Browser capabilities', webdriver.capabilities)
-
-def parseUrlLink(url_link_file):
-    config = ConfigParser()
-    config.read(url_link_file)
-    section_name = 'InternetShortcut'
-    if section_name in config:
-        url_tag = 'URL'
-        if url_tag in config[section_name]:
-            url = config[section_name][url_tag]
-            return url
-        else:
-            raise Exception('%s entry not found in [%s] section (file %s)' % (url_tag, section_name, url_link_file))
-    else:
-        raise Exception('[%s] section not in URL shortcut file (%s).' % (section_name, url_link_file))
 
 def format_types_str(types):
     if types:
@@ -208,21 +99,19 @@ def doMain():
     parser.add_argument("-t","--types",help="file types",choices=['epub','pdf','azw3','mobi','rar','zip','code'],nargs='*')
 
     cmdargs = parser.parse_args()
-    url = parseUrlLink(cmdargs.file)
-    if len(url) > 0:
-        try:
-            content = get_http_content(url)
-            data = extract_data(content)
-            file_types=cmdargs.types if hasattr(cmdargs,"types") else None
-            data[ ElementNames.DESCRIPTION ] = '<div class=\'scrollable\'>%s</div>' %  \
-                                               (format_types_str(file_types) + data[ ElementNames.DESCRIPTION ])
-            bookhelper.session.read_session_file()
-            #postDataTobrowser(data)
-            bookhelper.apiway.postDataTobrowser(data)
-            bookhelper.session.write_session_file()
-        except Exception as e:
-            bookhelper.session.check_session_state()
-            raise (e)
+
+    try:
+        data = extract_data(cmdargs.file)
+        file_types=cmdargs.types if hasattr(cmdargs,"types") else None
+        data[ ElementNames.DESCRIPTION ] = '<div class=\'scrollable\'>%s</div>' %  \
+                                           (format_types_str(file_types) + data[ ElementNames.DESCRIPTION ])
+        bookhelper.session.read_session_file()
+        #postDataTobrowser(data)
+        bookhelper.apiway.postDataTobrowser(data)
+        bookhelper.session.write_session_file()
+    except Exception as e:
+        bookhelper.session.check_session_state()
+        raise (e)
 
 
 if __name__ == "__main__":

@@ -44,3 +44,10 @@ class FileTypes(enum.Enum):
     RAR  = 'rar'
     ZIP  = 'zip'
     CODE = 'code'
+
+class FormatException(Exception):
+    def __init__(self, msg):
+        Exception.__init__(self, msg)
+
+    def __str__(self):
+        return "FormatException: " + Exception.__str__(self)
