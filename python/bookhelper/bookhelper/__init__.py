@@ -51,3 +51,5 @@ class FormatException(Exception):
 
     def __str__(self):
         return "FormatException: " + Exception.__str__(self)
+
+from .main import doMain
