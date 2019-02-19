@@ -2,6 +2,7 @@ import enum
 import sys
 from bookhelper import *
 import bookhelper
+import os
 
 
 @enumadapter
@@ -18,7 +19,17 @@ class CONFIG_ITEMS(enum.Enum):
 MARIONETTE_PORT=9876
 CHROME_BROWSER_PORT=7654
 
-supported_browsers_configs = [
+if os.name == 'posix':
+    print('Linux/Unix/MacOS detected')
+
+    supported_browsers_configs = [
+        {CONFIG_ITEMS.NAME: "firefox", CONFIG_ITEMS.BROWSER_EXE: "firefox", CONFIG_ITEMS.DRIVER_EXE: "geckodriver", CONFIG_ITEMS.MODULE: bookhelper.firefox, \
+            CONFIG_ITEMS.DRIVER_PORT: 25234, CONFIG_ITEMS.BROWSER_PORT: MARIONETTE_PORT, CONFIG_ITEMS.DRIVER_ARGS: [], CONFIG_ITEMS.LOG_FILE: "geckodriver.log"},
+        {CONFIG_ITEMS.NAME: "chrome", CONFIG_ITEMS.BROWSER_EXE: "chrome", CONFIG_ITEMS.DRIVER_EXE: "chromedriver", CONFIG_ITEMS.MODULE: bookhelper.chrome, \
+            CONFIG_ITEMS.DRIVER_PORT: 25134, CONFIG_ITEMS.BROWSER_PORT: CHROME_BROWSER_PORT, CONFIG_ITEMS.DRIVER_ARGS: [], CONFIG_ITEMS.LOG_FILE: "chromedriver.log"}]
+else:
+    print(os.name, 'Windows os')
+    supported_browsers_configs = [
         {CONFIG_ITEMS.NAME: "firefox", CONFIG_ITEMS.BROWSER_EXE: "firefox.exe", CONFIG_ITEMS.DRIVER_EXE: "geckodriver.exe", CONFIG_ITEMS.MODULE: bookhelper.firefox, \
             CONFIG_ITEMS.DRIVER_PORT: 15234, CONFIG_ITEMS.BROWSER_PORT: MARIONETTE_PORT, CONFIG_ITEMS.DRIVER_ARGS: [], CONFIG_ITEMS.LOG_FILE: "geckodriver.log"},
         {CONFIG_ITEMS.NAME: "chrome", CONFIG_ITEMS.BROWSER_EXE: "chrome.exe", CONFIG_ITEMS.DRIVER_EXE: "chromedriver.exe", CONFIG_ITEMS.MODULE: bookhelper.chrome, \

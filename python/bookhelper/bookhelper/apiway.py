@@ -31,6 +31,16 @@ def check_error(data):
     if data and SessionFields.ERROR in data:
         raise Exception(str(data[SessionFields.ERROR]))
 
+
+def json_loads(data):
+    data_str = ''
+    if type(data) is bytes:
+        data_str = data.decode('utf-8')
+    else:
+        data_str = data
+    return json.loads(data_str) 
+
+         
 def send_request(meth='GET',host='localhost',port=80,payload=None,path='/',headers={}):
     response_data=None
     err=None
@@ -47,6 +57,7 @@ def send_request(meth='GET',host='localhost',port=80,payload=None,path='/',heade
     if not err is None:
         raise err
     return response_data
+
 
 def postDataTobrowser(book_data):
     cfg = bookhelper.config.instance
@@ -75,7 +86,7 @@ def postDataTobrowser(book_data):
             args = [cfg.driver_exe]
             args.extend(cfg.driver_args)
 
-            driver_process = subprocess.Popen(args,shell=True,stdout=open( cfg.log_file ,'w+') )
+            driver_process = subprocess.Popen(args,shell=False,stdout=open( cfg.log_file ,'w+') )
             session.driver_pid = driver_process.pid
             print("\tNo running instance found. Create new DRIVER instance pid=(%d,%d)" % (session.driver_pid,driver_process.pid))
 
@@ -105,11 +116,12 @@ def postDataTobrowser(book_data):
     else:
         print('No running BROWSER found')
 
+    
     if not running_browser:
         print('Create new session...')
         payload = '{"capabilities": {"alwaysMatch": {"acceptInsecureCerts": true, "unhandledPromptBehavior": "ignore"} }}'
         r = send_request(meth='POST',host=host,port=port,path='/session',payload=payload)
-        http_resp=json.loads(r)
+        http_resp=json_loads(r)
         if  SessionFields.Value in http_resp and SessionFields.Error in http_resp[SessionFields.VALUE]:
             raise Exception('Error while creating new session:', str(http_resp[SessionFields.VALUE][SessionFields.ERROR]))
         else:
@@ -171,7 +183,7 @@ def get_element(session, elem,subitem=None):
     if not pl:
         raise Exception('No payload returned from request element %s' % str(elem))
 
-    pl = json.loads(pl)
+    pl = json_loads(pl)
 
     val_tag=SessionFields.VALUE
     elem_tag=SessionFields.ELEMENT
@@ -205,7 +217,7 @@ def clear_elem_text(session,elem):
     cfg = bookhelper.config.instance
     elem_id = get_element(session, elem, subitem=SessionFields.ELEMENT_ID)
     r = send_request(meth='POST', port=cfg.driver_port, payload="{}", path=('/session/%s/element/%s/clear' % (session.session_id,elem_id)))
-    check_error( json.loads(r) )
+    check_error( r )
 
 def close_session(session):
     from bookhelper.config import instance as cfg
