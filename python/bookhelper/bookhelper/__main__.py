@@ -1,6 +1,6 @@
 import sys
 
-if __name__=="__main__":
+def main():
     sys.path.extend(['..','.'])
     import bookhelper
     
@@ -11,3 +11,6 @@ if __name__=="__main__":
     print('args:',sys.argv)
     bookhelper.doMain()
 
+
+if __name__=="__main__":
+    main()
