@@ -6,4 +6,4 @@ if [ $# -gt 0 -a "$1" == "-u" ]; then
 	exit
 fi
 
-mountpoint -q $MOUNT_POINT || sudo mount -t cifs  -o vers=1.0 //192.168.0.1/"Seagate Backup Plus Drive 2To"  $MOUNT_POINT
+mountpoint -q $MOUNT_POINT || sudo mount -t cifs  -o guest,vers=1.0 //192.168.0.1/"Seagate Backup Plus Drive 2To"  $MOUNT_POINT
