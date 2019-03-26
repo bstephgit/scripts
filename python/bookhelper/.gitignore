@@ -1,6 +1,0 @@
-bin/
-build/
-dist/
-geckodriver.log
-selenium_browser_session.txt
-bookhelper.egg-info/

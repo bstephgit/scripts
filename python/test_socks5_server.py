@@ -13,6 +13,7 @@ import traceback
 
 __chunk_size__ = 128  # bytes
 __timeout__ = 15  # seconds
+__nbprocesses__ = None
 
 
 def lock_method(meth):
@@ -28,6 +29,11 @@ def lock_method(meth):
 
 
 def getNbProcess():
+    global __nbprocesses__
+    if __nbprocesses__ and __nbprocesses__ > 0:
+        max_processes = 32
+        return max_processes if __nbprocesses__ > max_processes else __nbprocesses__
+
     return mp.cpu_count()*2
 
 
@@ -303,16 +309,16 @@ def worker_proc(file_name, scheduler, logger, chunk_boundary):
 def process_file_mp(file_name, output_path):
 
     mgr = ManagerClass()
-    scheduler = None
+    nb = getNbProcess()
+    pool = mp.Pool(nb)
     try:
+        scheduler = None
+
         open(output_path, 'w+').close()
 
         mgr.start()
         logger = mgr.Logger(output_path)
         scheduler = mgr.Scheduler()
-
-        nb = getNbProcess()
-        pool = mp.Pool(nb)
 
         for chunk_boundary in get_file_chunk_boundaries(file_name):
             print(chunk_boundary)
@@ -340,8 +346,15 @@ def main():
                       default=False, help="if set, arguments processed as files")
     parser.add_option("-o", "--output", action="store",
                       default=None, help="if set, arguments processed as files")
+    
+    parser.add_option("-p", "--proc", dest="proc", type="int", help="Number of concurrent processes. Max=32" )
+
     (options, args) = parser.parse_args()
 
+    if hasattr(options,'proc'):
+        global __nbprocesses__
+        __nbprocesses__ = options.proc
+ 
     if options.output and os.path.isfile(options.output):
         os.remove(options.output)
     if len(args) > 0:
