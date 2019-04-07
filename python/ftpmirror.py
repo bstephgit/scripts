@@ -61,8 +61,9 @@ def _download_ftp_file(ftp_handle, name, dest, overwrite):
             with open(dest, 'wb') as f:
                 ftp_handle.retrbinary("RETR {0}".format(name), f.write)
             print("downloaded: {0}".format(dest))
-        except:
+        except Exception as e:
             print("FAILED: {0}".format(dest))
+            raise e
     else:
         print("already exists: {0}".format(dest))
 
@@ -93,8 +94,9 @@ def _mirror_ftp_dir(ftp_handle, ftppath, localdest, overwrite, guess_by_extensio
                 ftp_handle.cwd(ftpstartpath)
             else:
                 print ("ERROR Socket error exception caught:",se,"=> Abort")
-                return
-
+                exit(1)
+        except:
+                exit(2)
 
 def download_ftp_tree(ftp_handle, path, destination, overwrite=False, guess_by_extension=True,connect_param=None):
     """
@@ -113,9 +115,12 @@ def download_ftp_tree(ftp_handle, path, destination, overwrite=False, guess_by_e
 
     ftppath , startfolder = os.path.split(path)
     original_directory = os.getcwd()    # remember working directory before function is executed
+
+    if not os.path.exists(destination):
+        os.makedirs(destination)
     os.chdir(destination)               # change working directory to ftp mirror directory
     ftp_handle.cwd(ftppath);
-    _mirror_ftp_dir(ftp_handle, startfolder, destination, overwrite, guess_by_extension,connect_param+(ftppath,))
+    _mirror_ftp_dir(ftp_handle, startfolder, startfolder, overwrite, guess_by_extension,connect_param+(ftppath,))
     os.chdir(original_directory)        # reset working directory to what it was before function exec
 
 
@@ -141,4 +146,3 @@ if __name__ == "__main__":
     ftp = ftplib.FTP(mysite, username, password)
     ftp.encoding='utf-8'
     download_ftp_tree(ftp, remote_dir, local_dir,override,guessbyext,(mysite,username,password))
-    ftp.close()
