@@ -1,0 +1,18 @@
+if [ $# -eq 0 ]
+then
+  echo program name should be passed as parameter
+  exit
+fi
+
+PROG_NAME=$1
+FILE_NAME=temp_$RANDOM
+
+echo $(printf "/%s$/!d" $PROG_NAME) > $FILE_NAME
+echo "s/\\(^[0-9]\\+\\) .\\+/\\1/" >> $FILE_NAME
+for PID in $(ps | sed -f $FILE_NAME)
+do
+	kill -9 $PID
+done
+
+rm -f $FILE_NAME
+
